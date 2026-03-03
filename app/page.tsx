@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ChangeEvent } from "react";
 
 const phrases = [
   { ti: "ሰላም", en: "Peace" },
@@ -16,6 +16,22 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [charCount, setCharCount] = useState(0);
+  const [googleTranslation, setGoogleTranslation] = useState("");
+  const [azureTranslation, setAzureTranslation] = useState("");
+  const [selectedSource, setSelectedSource] = useState<"best" | "google" | "azure">("best");
+  const [translationId, setTranslationId] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"text" | "file">("text");
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [fileTranslation, setFileTranslation] = useState("");
+  const [fileOriginalText, setFileOriginalText] = useState("");
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [fileCopied, setFileCopied] = useState(false);
+  const [pageCount, setPageCount] = useState(0);
+  const [fileSelectedSource, setFileSelectedSource] = useState<"best" | "google" | "azure">("best");
+  const [fileGoogleTranslation, setFileGoogleTranslation] = useState("");
+  const [fileAzureTranslation, setFileAzureTranslation] = useState("");
 
   const translate = useCallback(async () => {
     if (!inputText.trim()) return;
@@ -35,6 +51,10 @@ export default function Home() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setOutputText(data.translation);
+      setGoogleTranslation(data.googleTranslation || "");
+      setAzureTranslation(data.azureTranslation || "");
+      setTranslationId(data.translationId || "");
+      setSelectedSource("best");
     } catch (e: any) {
       setError(e.message || "Translation failed. Please try again.");
     } finally {
@@ -44,22 +64,105 @@ export default function Home() {
 
   const swapLanguages = () => {
     setDirection((d) => (d === "en-ti" ? "ti-en" : "en-ti"));
-    setInputText(outputText);
-    setOutputText(inputText);
-    setCharCount(outputText.length);
+    // Only swap text content on the text tab
+    if (activeTab === "text") {
+      setInputText(outputText);
+      setOutputText(inputText);
+      setCharCount(outputText.length);
+      setGoogleTranslation("");
+      setAzureTranslation("");
+    }
+    // On file tab, just flip direction — user will re-upload
+    if (activeTab === "file") {
+      setFileTranslation("");
+      setFileError("");
+    }
   };
 
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const getDisplayedTranslation = () => {
+    if (selectedSource === "google") return googleTranslation;
+    if (selectedSource === "azure") return azureTranslation;
+    return outputText;
+  };
+
+  const handleInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
     setCharCount(e.target.value.length);
   };
 
+  const getDisplayedFileTranslation = () => {
+    if (fileSelectedSource === "google") return fileGoogleTranslation;
+    if (fileSelectedSource === "azure") return fileAzureTranslation;
+    return fileTranslation;
+  };
+
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(outputText);
+    navigator.clipboard.writeText(getDisplayedTranslation());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const translateFile = async () => {
+    if (!uploadedFile) return;
+    setFileLoading(true);
+    setFileError("");
+    setFileTranslation("");
+    setFileGoogleTranslation("");
+    setFileAzureTranslation("");
+
+    const from = direction === "en-ti" ? "en" : "ti";
+    const to = direction === "en-ti" ? "ti" : "en";
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", uploadedFile);
+      formData.append("from", from);
+      formData.append("to", to);
+
+      const res = await fetch("/api/translate-file", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const cleaned = data.translation
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+      setFileTranslation(cleaned);
+      setFileGoogleTranslation(data.googleTranslation || "");
+      setFileAzureTranslation(data.azureTranslation || "");
+      setFileOriginalText(data.originalText);
+      setPageCount(data.pageCount);
+      setFileSelectedSource("best");
+
+  } catch (e: any) {
+    setFileError(e.message || "File translation failed. Please try again.");
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const downloadTranslation = () => {
+    const blob = new Blob([fileTranslation], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${uploadedFile?.name.replace(".pdf", "")}_translated.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyFileTranslation = () => {
+    navigator.clipboard.writeText(getDisplayedFileTranslation());
+    setFileCopied(true);
+    setTimeout(() => setFileCopied(false), 2000);
   };
 
   return (
     <main style={{ minHeight: "100vh", background: "#0a0a0f", fontFamily: "'Georgia', serif", color: "#f0ebe0" }}>
+
       {/* Background pattern */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 0,
@@ -81,39 +184,55 @@ export default function Home() {
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             margin: 0, lineHeight: 1.1, letterSpacing: "-0.02em"
           }}>
-            Tigrinya Bridge
+            Haylwa
           </h1>
           <p style={{ color: "#8a7a6a", marginTop: 16, fontSize: 16, fontStyle: "italic" }}>
-            Connecting languages, preserving culture
+            Language without barriers
           </p>
         </header>
 
-        {/* Daily phrases strip */}
-        <div style={{
-          display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8, marginBottom: 40,
-          scrollbarWidth: "none"
-        }}>
-          {phrases.map((p, i) => (
-            <button key={i} onClick={() => { setInputText(p.ti); setCharCount(p.ti.length); setDirection("ti-en"); }}
+        {/* Tab switcher */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 32, justifyContent: "center" }}>
+          {(["text", "file"] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
               style={{
-                flexShrink: 0, padding: "8px 16px", borderRadius: 20,
-                border: "1px solid rgba(196,142,72,0.3)", background: "rgba(196,142,72,0.06)",
-                color: "#c48e48", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
-                transition: "all 0.2s"
+                padding: "10px 32px", borderRadius: 50, fontSize: 14, fontWeight: 600,
+                cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit",
+                background: activeTab === tab ? "linear-gradient(135deg, #c48e48, #8b5a2b)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${activeTab === tab ? "transparent" : "rgba(255,255,255,0.1)"}`,
+                color: activeTab === tab ? "#f0ebe0" : "#8a7a6a",
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(196,142,72,0.15)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(196,142,72,0.06)")}
             >
-              {p.ti} · {p.en}
+              {tab === "text" ? "✍️ Text" : "📁 File"}
             </button>
           ))}
         </div>
 
-        {/* Language toggle bar */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          gap: 16, marginBottom: 24
-        }}>
+        {/* Daily phrases strip — text tab only */}
+        {activeTab === "text" && (
+          <div style={{
+            display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8, marginBottom: 40,
+            scrollbarWidth: "none"
+          }}>
+            {phrases.map((p, i) => (
+              <button key={i} onClick={() => { setInputText(p.ti); setCharCount(p.ti.length); setDirection("ti-en"); }}
+                style={{
+                  flexShrink: 0, padding: "8px 16px", borderRadius: 20,
+                  border: "1px solid rgba(196,142,72,0.3)", background: "rgba(196,142,72,0.06)",
+                  color: "#c48e48", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(196,142,72,0.15)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(196,142,72,0.06)")}
+              >
+                {p.ti} · {p.en}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Language toggle — shared across both tabs */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 24 }}>
           <div style={{
             padding: "10px 28px", borderRadius: 8,
             background: direction === "en-ti" ? "rgba(196,142,72,0.2)" : "rgba(255,255,255,0.04)",
@@ -143,92 +262,270 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Translation panels */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {/* Input panel */}
-          <div style={{
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16, overflow: "hidden"
-          }}>
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 12, color: "#8a7a6a", letterSpacing: "0.15em", textTransform: "uppercase" }}>
-              {direction === "en-ti" ? "English" : "ትግርኛ"} · Source
+        {/* ── TEXT TAB ── */}
+        {activeTab === "text" && (
+          <>
+            {/* Translation panels */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+
+              {/* Input panel */}
+              <div style={{
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 16, overflow: "hidden"
+              }}>
+                <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 12, color: "#8a7a6a", letterSpacing: "0.15em", textTransform: "uppercase" }}>
+                  {direction === "en-ti" ? "English" : "ትግርኛ"} · Source
+                </div>
+                <textarea
+                  value={inputText}
+                  onChange={handleInput}
+                  placeholder={direction === "en-ti" ? "Type or paste your text here..." : "ትግርኛ ጽሑፍካ ኣብዚ ጸሓፍ..."}
+                  style={{
+                    width: "100%", minHeight: 240, padding: 20, background: "transparent",
+                    border: "none", outline: "none", color: "#f0ebe0", fontSize: 16,
+                    lineHeight: 1.7, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box",
+                    overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#c48e48 transparent",
+                  }}
+                />
+                <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: "#8a7a6a" }}>{charCount} characters</span>
+                  <button onClick={() => { setInputText(""); setOutputText(""); setCharCount(0); setGoogleTranslation(""); setAzureTranslation(""); }}
+                    style={{ fontSize: 12, color: "#8a7a6a", background: "none", border: "none", cursor: "pointer" }}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              {/* Output panel */}
+              <div className="output-panel" style={{
+                background: "rgba(196,142,72,0.04)", border: "1px solid rgba(196,142,72,0.15)",
+                borderRadius: 16, overflow: "hidden", position: "relative"
+              }}>
+                <div style={{
+                  padding: "14px 20px", borderBottom: "1px solid rgba(196,142,72,0.1)",
+                  fontSize: 12, color: "#c48e48", letterSpacing: "0.15em", textTransform: "uppercase",
+                  display: "flex", justifyContent: "space-between", alignItems: "center"
+                }}>
+                  <span>{direction === "en-ti" ? "ትግርኛ" : "English"} · Translation</span>
+                  {outputText && (
+                    <select
+                      value={selectedSource}
+                      onChange={e => setSelectedSource(e.target.value as "best" | "google" | "azure")}
+                      style={{
+                        background: "rgba(196,142,72,0.1)",
+                        border: "1px solid rgba(196,142,72,0.3)",
+                        borderRadius: 6, color: "#c48e48", fontSize: 11,
+                        padding: "4px 8px", cursor: "pointer", outline: "none",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      <option value="best">🥇 Haylwa Enhanced</option>
+                      <option value="google">🥈 Standard</option>
+                      <option value="azure">🥉 Classic</option>
+                    </select>
+                  )}
+                </div>
+
+                <div style={{
+                  padding: 20, minHeight: 240, fontSize: 16, lineHeight: 1.7,
+                  color: getDisplayedTranslation() ? "#f0ebe0" : "#4a3a2a",
+                  overflowY: "auto", maxHeight: 320,
+                  scrollbarWidth: "thin", scrollbarColor: "#c48e48 transparent",
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {loading ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#c48e48" }}>
+                      <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>◌</span>
+                      Translating...
+                    </div>
+                  ) : error ? (
+                    <span style={{ color: "#e07070" }}>{error}</span>
+                  ) : getDisplayedTranslation() || "Translation will appear here..."}
+                </div>
+
+                {outputText && (
+                  <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(196,142,72,0.1)", display: "flex", gap: 12 }}>
+                    <button onClick={copyToClipboard} style={{
+                      fontSize: 12,
+                      color: copied ? "#4ade80" : "#c48e48",
+                      background: copied ? "rgba(74,222,128,0.1)" : "none",
+                      border: `1px solid ${copied ? "rgba(74,222,128,0.5)" : "rgba(196,142,72,0.3)"}`,
+                      borderRadius: 6, padding: "4px 12px", cursor: "pointer",
+                      transition: "all 0.3s", fontWeight: copied ? 600 : 400,
+                    }}>
+                      {copied ? "✓ Copied!" : "Copy"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-            <textarea
-              value={inputText}
-              onChange={handleInput}
-              placeholder={direction === "en-ti" ? "Type or paste your text here..." : "ትግርኛ ጽሑፍካ ኣብዚ ጸሓፍ..."}
-              style={{
-                width: "100%", minHeight: 240, padding: 20, background: "transparent",
-                border: "none", outline: "none", color: "#f0ebe0", fontSize: 16,
-                lineHeight: 1.7, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box"
-              }}
-            />
-            <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#8a7a6a" }}>{charCount} characters</span>
-              <button onClick={() => { setInputText(""); setOutputText(""); setCharCount(0); }}
-                style={{ fontSize: 12, color: "#8a7a6a", background: "none", border: "none", cursor: "pointer" }}>
-                Clear
+
+            {/* Translate button */}
+            <div style={{ textAlign: "center", marginTop: 28 }}>
+              <button onClick={translate} disabled={loading || !inputText.trim()}
+                style={{
+                  padding: "16px 56px", borderRadius: 50,
+                  background: loading || !inputText.trim() ? "rgba(196,142,72,0.2)" : "linear-gradient(135deg, #c48e48, #8b5a2b)",
+                  border: "none", color: "#f0ebe0", fontSize: 16, fontWeight: 600,
+                  letterSpacing: "0.08em", cursor: loading || !inputText.trim() ? "not-allowed" : "pointer",
+                  transition: "all 0.3s", fontFamily: "inherit"
+                }}
+                onMouseEnter={e => { if (!loading && inputText.trim()) e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
+              >
+                {loading ? "Translating..." : "Translate →"}
               </button>
             </div>
-          </div>
+          </>
+        )}
 
-          {/* Output panel */}
-          <div style={{
-            background: "rgba(196,142,72,0.04)", border: "1px solid rgba(196,142,72,0.15)",
-            borderRadius: 16, overflow: "hidden", position: "relative"
-          }}>
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(196,142,72,0.1)", fontSize: 12, color: "#c48e48", letterSpacing: "0.15em", textTransform: "uppercase" }}>
-              {direction === "en-ti" ? "ትግርኛ" : "English"} · Translation
+        {/* ── FILE TAB ── */}
+        {activeTab === "file" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+            {/* Upload area */}
+            <div
+              onClick={() => document.getElementById("fileInput")?.click()}
+              style={{
+                border: `2px dashed ${uploadedFile ? "rgba(196,142,72,0.6)" : "rgba(255,255,255,0.15)"}`,
+                borderRadius: 16, padding: "48px 24px", textAlign: "center",
+                cursor: "pointer", transition: "all 0.3s",
+                background: uploadedFile ? "rgba(196,142,72,0.06)" : "rgba(255,255,255,0.02)",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(196,142,72,0.5)")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = uploadedFile ? "rgba(196,142,72,0.6)" : "rgba(255,255,255,0.15)")}
+            >
+              <input
+                id="fileInput"
+                type="file"
+                accept=".pdf"
+                style={{ display: "none" }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) { setUploadedFile(file); setFileTranslation(""); setFileError(""); }
+                }}
+              />
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
+              {uploadedFile ? (
+                <>
+                  <div style={{ color: "#c48e48", fontWeight: 600, marginBottom: 4 }}>{uploadedFile.name}</div>
+                  <div style={{ color: "#8a7a6a", fontSize: 13 }}>
+                    {(uploadedFile.size / 1024).toFixed(1)} KB · Click to change file
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ color: "#f0ebe0", marginBottom: 8, fontWeight: 500 }}>Drop your PDF here or click to browse</div>
+                  <div style={{ color: "#8a7a6a", fontSize: 13 }}>Supports PDF files up to 10MB</div>
+                </>
+              )}
             </div>
-            <div style={{ padding: 20, minHeight: 240, fontSize: 16, lineHeight: 1.7, color: outputText ? "#f0ebe0" : "#4a3a2a" }}>
-              {loading ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#c48e48" }}>
-                  <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>◌</span>
-                  Translating...
+
+            {/* Translate file button */}
+            <div style={{ textAlign: "center" }}>
+              <button onClick={translateFile} disabled={fileLoading || !uploadedFile}
+                style={{
+                  padding: "16px 56px", borderRadius: 50,
+                  background: fileLoading || !uploadedFile ? "rgba(196,142,72,0.2)" : "linear-gradient(135deg, #c48e48, #8b5a2b)",
+                  border: "none", color: "#f0ebe0", fontSize: 16, fontWeight: 600,
+                  letterSpacing: "0.08em", cursor: fileLoading || !uploadedFile ? "not-allowed" : "pointer",
+                  transition: "all 0.3s", fontFamily: "inherit"
+                }}
+                onMouseEnter={e => { if (!fileLoading && uploadedFile) e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
+              >
+                {fileLoading ? "Translating..." : "Translate PDF →"}
+              </button>
+            </div>
+
+            {/* File error */}
+            {fileError && (
+              <div style={{ color: "#e07070", textAlign: "center", fontSize: 14 }}>{fileError}</div>
+            )}
+
+            {/* File translation output */}
+            {getDisplayedFileTranslation() && (
+              <div style={{
+                background: "rgba(196,142,72,0.04)", border: "1px solid rgba(196,142,72,0.15)",
+                borderRadius: 16, overflow: "hidden"
+              }}>
+              <div style={{
+              padding: "14px 20px", borderBottom: "1px solid rgba(196,142,72,0.1)",
+              fontSize: 12, color: "#c48e48", letterSpacing: "0.15em", textTransform: "uppercase",
+              display: "flex", justifyContent: "space-between", alignItems: "center"
+            }}>
+                <span>Translation · {pageCount} {pageCount === 1 ? "page" : "pages"}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <select
+                  value={fileSelectedSource}
+                  onChange={e => setFileSelectedSource(e.target.value as "best" | "google" | "azure")}
+                  style={{
+                    background: "rgba(196,142,72,0.1)",
+                    border: "1px solid rgba(196,142,72,0.3)",
+                    borderRadius: 6, color: "#c48e48", fontSize: 11,
+                    padding: "4px 8px", cursor: "pointer", outline: "none",
+                  }}
+                >
+                  <option value="best">🥇 Haylwa Enhanced</option>
+                  <option value="google">🥈 Standard</option>
+                  <option value="azure">🥉 Classic</option>
+                </select>
+                <span style={{ color: "#8a7a6a", fontSize: 11 }}>{uploadedFile?.name}</span>
+              </div>
+            </div>
+
+                <div style={{
+                  padding: 20, maxHeight: 400, overflowY: "scroll",
+                  fontSize: 15, lineHeight: 1.8, color: "#f0ebe0", whiteSpace: "pre-wrap",
+                  scrollbarWidth: "thin", scrollbarColor: "#c48e48 transparent",
+                }}>
+                  {getDisplayedFileTranslation()}
                 </div>
-              ) : error ? (
-                <span style={{ color: "#e07070" }}>{error}</span>
-              ) : outputText || "Translation will appear here..."}
-            </div>
-            {outputText && (
-              <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(196,142,72,0.1)", display: "flex", gap: 12 }}>
-                <button onClick={copyToClipboard}
-                  style={{ fontSize: 12, color: "#c48e48", background: "none", border: "1px solid rgba(196,142,72,0.3)", borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>
-                  Copy
-                </button>
+
+                <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(196,142,72,0.1)", display: "flex", gap: 12 }}>
+                  <button onClick={copyFileTranslation} style={{
+                    fontSize: 12,
+                    color: fileCopied ? "#4ade80" : "#c48e48",
+                    background: fileCopied ? "rgba(74,222,128,0.1)" : "none",
+                    border: `1px solid ${fileCopied ? "rgba(74,222,128,0.5)" : "rgba(196,142,72,0.3)"}`,
+                    borderRadius: 6, padding: "4px 12px", cursor: "pointer",
+                    transition: "all 0.3s", fontWeight: fileCopied ? 600 : 400,
+                  }}>
+                    {fileCopied ? "✓ Copied!" : "Copy"}
+                  </button>
+                  <button onClick={downloadTranslation} style={{
+                    fontSize: 12, color: "#c48e48", background: "none",
+                    border: "1px solid rgba(196,142,72,0.3)", borderRadius: 6,
+                    padding: "4px 12px", cursor: "pointer", transition: "all 0.3s",
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(196,142,72,0.1)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                  >
+                    Download .txt
+                  </button>
+                </div>
               </div>
             )}
           </div>
-        </div>
-
-        {/* Translate button */}
-        <div style={{ textAlign: "center", marginTop: 28 }}>
-          <button onClick={translate} disabled={loading || !inputText.trim()}
-            style={{
-              padding: "16px 56px", borderRadius: 50,
-              background: loading || !inputText.trim() ? "rgba(196,142,72,0.2)" : "linear-gradient(135deg, #c48e48, #8b5a2b)",
-              border: "none", color: "#f0ebe0", fontSize: 16, fontWeight: 600,
-              letterSpacing: "0.08em", cursor: loading || !inputText.trim() ? "not-allowed" : "pointer",
-              transition: "all 0.3s", fontFamily: "inherit"
-            }}
-            onMouseEnter={e => { if (!loading && inputText.trim()) e.currentTarget.style.transform = "translateY(-2px)"; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
-          >
-            {loading ? "Translating..." : "Translate →"}
-          </button>
-        </div>
+        )}
 
         {/* Footer */}
         <div style={{ textAlign: "center", marginTop: 80, color: "#4a3a2a", fontSize: 13 }}>
           <div style={{ fontSize: 20, marginBottom: 8 }}>🇪🇷 🇪🇹</div>
           Built with love for the Tigrinya community
         </div>
+
       </div>
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { display: none; }
+        textarea::-webkit-scrollbar { width: 4px; }
+        textarea::-webkit-scrollbar-thumb { background: #c48e48; border-radius: 4px; }
+        textarea::-webkit-scrollbar-track { background: transparent; }
+        .output-panel::-webkit-scrollbar { width: 4px; }
+        .output-panel::-webkit-scrollbar-thumb { background: #c48e48; border-radius: 4px; }
+        .output-panel::-webkit-scrollbar-track { background: transparent; }
         @media (max-width: 640px) {
           div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
         }
