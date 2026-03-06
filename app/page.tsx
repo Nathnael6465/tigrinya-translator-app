@@ -32,6 +32,8 @@ export default function Home() {
   const [fileSelectedSource, setFileSelectedSource] = useState<"best" | "google" | "azure">("best");
   const [fileGoogleTranslation, setFileGoogleTranslation] = useState("");
   const [fileAzureTranslation, setFileAzureTranslation] = useState("");
+  const [limitReached, setLimitReached] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
 
   const translate = useCallback(async () => {
     if (!inputText.trim()) return;
@@ -49,11 +51,18 @@ export default function Home() {
         body: JSON.stringify({ text: inputText, from, to }),
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+
+    if (data.limitReached) {
+      setLimitReached(true);
+      throw new Error(data.error);
+    }
+
+    if (data.error) throw new Error(data.error);
       setOutputText(data.translation);
       setGoogleTranslation(data.googleTranslation || "");
       setAzureTranslation(data.azureTranslation || "");
       setTranslationId(data.translationId || "");
+      setRemaining(data.remaining);
       setSelectedSource("best");
     } catch (e: any) {
       setError(e.message || "Translation failed. Please try again.");
@@ -112,7 +121,7 @@ export default function Home() {
 
     const from = direction === "en-ti" ? "en" : "ti";
     const to = direction === "en-ti" ? "ti" : "en";
-    
+
     try {
       const formData = new FormData();
       formData.append("file", uploadedFile);
@@ -125,10 +134,15 @@ export default function Home() {
       });
 
       const data = await res.json();
+
+      if (data.limitReached) {
+        setLimitReached(true);
+        throw new Error(data.error);
+      }
       if (data.error) throw new Error(data.error);
       const cleaned = data.translation
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 
       setFileTranslation(cleaned);
       setFileGoogleTranslation(data.googleTranslation || "");
@@ -137,8 +151,8 @@ export default function Home() {
       setPageCount(data.pageCount);
       setFileSelectedSource("best");
 
-  } catch (e: any) {
-    setFileError(e.message || "File translation failed. Please try again.");
+    } catch (e: any) {
+      setFileError(e.message || "File translation failed. Please try again.");
     } finally {
       setFileLoading(false);
     }
@@ -281,15 +295,27 @@ export default function Home() {
                   onChange={handleInput}
                   placeholder={direction === "en-ti" ? "Type or paste your text here..." : "ትግርኛ ጽሑፍካ ኣብዚ ጸሓፍ..."}
                   style={{
-                    width: "100%", minHeight: 240, padding: 20, background: "transparent",
-                    border: "none", outline: "none", color: "#f0ebe0", fontSize: 16,
-                    lineHeight: 1.7, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box",
-                    overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#c48e48 transparent",
+                    width: "100%",
+                    minHeight: 440,
+                    maxHeight: 800,  
+                    padding: 20,
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "#f0ebe0",
+                    fontSize: 16,
+                    lineHeight: 1.7,
+                    resize: "both", 
+                    fontFamily: "inherit",
+                    boxSizing: "border-box",
+                    overflowY: "auto",
+                    scrollbarWidth: "thin",
+                    scrollbarColor: "#c48e48 transparent",
                   }}
                 />
                 <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 12, color: "#8a7a6a" }}>{charCount} characters</span>
-                  <button onClick={() => { setInputText(""); setOutputText(""); setCharCount(0); setGoogleTranslation(""); setAzureTranslation(""); }}
+                  <button onClick={() => { setInputText(""); setOutputText(""); setCharCount(0); setGoogleTranslation(""); setAzureTranslation(""); setLimitReached(false); setRemaining(null); }}
                     style={{ fontSize: 12, color: "#8a7a6a", background: "none", border: "none", cursor: "pointer" }}>
                     Clear
                   </button>
@@ -327,10 +353,15 @@ export default function Home() {
                 </div>
 
                 <div style={{
-                  padding: 20, minHeight: 240, fontSize: 16, lineHeight: 1.7,
+                  padding: 20,
+                  minHeight: 440,
+                  maxHeight: 800,  // ← match input
+                  fontSize: 16,
+                  lineHeight: 1.7,
                   color: getDisplayedTranslation() ? "#f0ebe0" : "#4a3a2a",
-                  overflowY: "auto", maxHeight: 320,
-                  scrollbarWidth: "thin", scrollbarColor: "#c48e48 transparent",
+                  overflowY: "auto",
+                  scrollbarWidth: "thin",
+                  scrollbarColor: "#c48e48 transparent",
                   whiteSpace: "pre-wrap",
                 }}>
                   {loading ? (
@@ -360,6 +391,43 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Rate limit warning */}
+{remaining !== null && remaining <= 3 && !limitReached && (
+  <div style={{
+    textAlign: "center", marginTop: 16,
+    padding: "10px 20px", borderRadius: 8,
+    background: "rgba(196,142,72,0.1)",
+    border: "1px solid rgba(196,142,72,0.3)",
+    color: "#c48e48", fontSize: 13,
+  }}>
+    ⚠️ {remaining} free translations remaining today.{" "}
+    <span style={{ textDecoration: "underline", cursor: "pointer" }}>
+      Upgrade for unlimited access
+    </span>
+  </div>
+)}
+
+{/* Limit reached */}
+{limitReached && (
+  <div style={{
+    textAlign: "center", marginTop: 16,
+    padding: "16px 20px", borderRadius: 8,
+    background: "rgba(224,112,112,0.1)",
+    border: "1px solid rgba(224,112,112,0.3)",
+    color: "#e07070", fontSize: 14,
+  }}>
+    🚫 Daily limit reached. Upgrade to continue translating.{" "}
+    <button style={{
+      marginLeft: 8, padding: "4px 12px", borderRadius: 6,
+      background: "linear-gradient(135deg, #c48e48, #8b5a2b)",
+      border: "none", color: "#f0ebe0", fontSize: 13,
+      cursor: "pointer", fontFamily: "inherit",
+    }}>
+      View Plans →
+    </button>
+  </div>
+)}
+
             {/* Translate button */}
             <div style={{ textAlign: "center", marginTop: 28 }}>
               <button onClick={translate} disabled={loading || !inputText.trim()}
@@ -374,6 +442,30 @@ export default function Home() {
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
               >
                 {loading ? "Translating..." : "Translate →"}
+              </button>
+            </div>
+
+            <div style={{
+              padding: "12px 20px",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center"
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{
+                  fontSize: 12, color:
+                    charCount > 10000 ? "#e07070" :
+                      charCount > 5000 ? "#f0a050" : "#8a7a6a"
+                }}>
+                  {charCount} characters
+                  {charCount > 10000 && " — Text is too long. Please use the file upload option ...."}
+                  {charCount > 5000 && charCount <= 10000 && " — Long text, consider File Upload"}
+                </span>
+              </div>
+              <button onClick={() => { setInputText(""); setOutputText(""); setCharCount(0); setGoogleTranslation(""); setAzureTranslation(""); }}
+                style={{ fontSize: 12, color: "#8a7a6a", background: "none", border: "none", cursor: "pointer" }}>
+                Clear
               </button>
             </div>
           </>
@@ -449,30 +541,30 @@ export default function Home() {
                 background: "rgba(196,142,72,0.04)", border: "1px solid rgba(196,142,72,0.15)",
                 borderRadius: 16, overflow: "hidden"
               }}>
-              <div style={{
-              padding: "14px 20px", borderBottom: "1px solid rgba(196,142,72,0.1)",
-              fontSize: 12, color: "#c48e48", letterSpacing: "0.15em", textTransform: "uppercase",
-              display: "flex", justifyContent: "space-between", alignItems: "center"
-            }}>
-                <span>Translation · {pageCount} {pageCount === 1 ? "page" : "pages"}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <select
-                  value={fileSelectedSource}
-                  onChange={e => setFileSelectedSource(e.target.value as "best" | "google" | "azure")}
-                  style={{
-                    background: "rgba(196,142,72,0.1)",
-                    border: "1px solid rgba(196,142,72,0.3)",
-                    borderRadius: 6, color: "#c48e48", fontSize: 11,
-                    padding: "4px 8px", cursor: "pointer", outline: "none",
-                  }}
-                >
-                  <option value="best">🥇 Haylwa Enhanced</option>
-                  <option value="google">🥈 Standard</option>
-                  <option value="azure">🥉 Classic</option>
-                </select>
-                <span style={{ color: "#8a7a6a", fontSize: 11 }}>{uploadedFile?.name}</span>
-              </div>
-            </div>
+                <div style={{
+                  padding: "14px 20px", borderBottom: "1px solid rgba(196,142,72,0.1)",
+                  fontSize: 12, color: "#c48e48", letterSpacing: "0.15em", textTransform: "uppercase",
+                  display: "flex", justifyContent: "space-between", alignItems: "center"
+                }}>
+                  <span>Translation · {pageCount} {pageCount === 1 ? "page" : "pages"}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <select
+                      value={fileSelectedSource}
+                      onChange={e => setFileSelectedSource(e.target.value as "best" | "google" | "azure")}
+                      style={{
+                        background: "rgba(196,142,72,0.1)",
+                        border: "1px solid rgba(196,142,72,0.3)",
+                        borderRadius: 6, color: "#c48e48", fontSize: 11,
+                        padding: "4px 8px", cursor: "pointer", outline: "none",
+                      }}
+                    >
+                      <option value="best">🥇 Haylwa Enhanced</option>
+                      <option value="google">🥈 Standard</option>
+                      <option value="azure">🥉 Classic</option>
+                    </select>
+                    <span style={{ color: "#8a7a6a", fontSize: 11 }}>{uploadedFile?.name}</span>
+                  </div>
+                </div>
 
                 <div style={{
                   padding: 20, maxHeight: 400, overflowY: "scroll",
@@ -528,6 +620,8 @@ export default function Home() {
         .output-panel::-webkit-scrollbar-track { background: transparent; }
         @media (max-width: 640px) {
           div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
+          .translation-panel { min-height: 200px !important; max-height: 400px !important; }
+          
         }
       `}</style>
     </main>
